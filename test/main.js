@@ -26,5 +26,6 @@ B1.bundle();
 
 B2.bundle('files/playground.json');
 
+B1.onload = (e)=> console.log(e);
 B1.onfinished = (e)=> document.body.innerHTML += e;
 B2.onfinished = (e)=> document.body.innerHTML += e;

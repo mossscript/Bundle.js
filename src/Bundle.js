@@ -1,17 +1,15 @@
 class Bundle {
-   /* privet variable */
+   /*** privet variable ***/
    #target;
    #playground;
-   
    #tasks;
-   
    #source;
    #paths;
    #output;
-   
+   #format;
    #stepByStep;
    
-   /* constructor */
+   /*** constructor ***/
    constructor() {
       this.version = '1.0.0';
       this.#target = new EventTarget();
@@ -22,7 +20,7 @@ class Bundle {
       this.#stepByStep = true;
    }
    
-   /* private class */
+   /*** private class ***/
    #Playground = class {
       /* private variable */
       #raw;
@@ -49,14 +47,11 @@ class Bundle {
          type: (input) => {
             return typeof input === 'string' && /^(url|inline)$/i.test(input);
          },
-         subType: (input) => {
-            return typeof input === 'string' && /^(url|inline|default|inherit)$/i.test(input);
-         },
          format: (input) => {
             return typeof input === 'string' && /^[a-z][a-z0-9]*$/i.test(input);
          },
-         subType: (input) => {
-            return typeof input === 'string' && /^(text|base64|buffer|binary|encode)$/i.test(input);
+         context: (input) => {
+            return typeof input === 'string' && /^(text|base64|binary|encode)$/i.test(input);
          },
          key: (input) => {
             return typeof input === 'string' && /^(?=[\s\S]*KEY[\s\S]*$)(?![\s\S]*KEY[\s\S]*KEY[\s\S]*$)/i.test(input);
@@ -276,7 +271,7 @@ class Bundle {
       }
    }
    
-   /* privet method */
+   /*** privet method ***/
    #dispatch(event, detail = {}) {
       this.#target.dispatchEvent(new CustomEvent(event, { detail }));
    }
@@ -415,7 +410,7 @@ class Bundle {
       this.#output = walk(rootNode, sourceTree);
    }
    
-   /* method */
+   /*** method ***/
    setPlayground(obj) {
       this.#playground.setPlayground(obj);
    }
@@ -451,16 +446,25 @@ class Bundle {
       if (url) {
          this.#fetch(url, 'json').then((data) => {
             this.setPlayground(data);
+            this.#format = this.#playground.output.format;
+            this.#dispatch('load', this.#playground.output);
             this.#getSources();
             this.#runAllTask();
          })
       } else {
+         this.#format = this.#playground.output.format;
          this.#getSources();
          this.#runAllTask();
+         queueMicrotask(()=>{
+            this.#dispatch('load', this.#playground.output);
+         })
       }
    }
    
-   /* event */
+   /*** event ***/
+   set onload(callback) {
+      this.#target.addEventListener('load', (e) => callback(e.detail));
+   }
    set onstart(callback) {
       this.#target.addEventListener('start', (e) => callback(e.detail));
    }
