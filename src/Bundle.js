@@ -1,6 +1,29 @@
-((global) => {
-   /*** Playground ***/
-   class Playground {
+class Bundle {
+   /* privet variable */
+   #target;
+   #playground;
+   
+   #tasks;
+   
+   #source;
+   #paths;
+   #output;
+   
+   #stepByStep;
+   
+   /* constructor */
+   constructor() {
+      this.version = '1.0.0';
+      this.#target = new EventTarget();
+      this.#playground = new this.#Playground();
+      this.#source = {};
+      this.#paths = {};
+      this.#tasks = [];
+      this.#stepByStep = true;
+   }
+   
+   /* private class */
+   #Playground = class {
       /* private variable */
       #raw;
       
@@ -253,226 +276,198 @@
       }
    }
    
-   /*** Bundle ***/
-   class Bundle {
-      /* privet variable */
-      #target;
-      #playground;
-      
-      #tasks;
-      
-      #source;
-      #paths;
-      #output;
-      
-      #stepByStep;
-      
-      /* constructor */
-      constructor() {
-         this.version = '1.0.0';
-         this.#target = new EventTarget();
-         this.#playground = new Playground();
-         this.#source = {};
-         this.#paths = {};
-         this.#tasks = [];
-         this.#stepByStep = true;
+   /* privet method */
+   #dispatch(event, detail = {}) {
+      this.#target.dispatchEvent(new CustomEvent(event, { detail }));
+   }
+   #addTask(type, value, path) {
+      if (type === 'inline') {
+         this.#tasks.push(() => Promise.resolve().then(() => {
+            return {
+               [path]: value };
+         }));
       }
-      
-      /* privet method */
-      #dispatch(event, detail = {}) {
-         this.#target.dispatchEvent(new CustomEvent(event, { detail }));
+      if (type === 'url') {
+         this.#tasks.push(() => this.#fetch(value).then((data) => {
+            return {
+               [path]: data };
+         }));
       }
-      #addTask(type, value, path) {
-         if (type === 'inline') {
-            this.#tasks.push(() => Promise.resolve().then(()=> {
-               return {[path]: value};
-            }));
-         }
-         if (type === 'url') {
-            this.#tasks.push(()=> this.#fetch(value).then((data)=>{
-               return {[path]: data};
-            }));
-         }
-      }
-      #runAllTask() {
-         let progress = 0;
-         let length = this.#tasks.length;
-         queueMicrotask(() => {
-            this.#dispatch('start', { length })
+   }
+   #runAllTask() {
+      let progress = 0;
+      let length = this.#tasks.length;
+      queueMicrotask(() => {
+         this.#dispatch('start', { length })
+      })
+      const walk = (i) => {
+         this.#tasks[i]().then((data) => {
+            progress++;
+            let [path, value] = Object.entries(data)[0];
+            this.#paths[path] = value;
+            this.#pathToTree(path, value);
+            if (this.#stepByStep) this.#insert();
+            this.#dispatch('progress', { progress, length, output: this.#output });
+            if (progress !== length) {
+               walk(progress);
+            } else {
+               if (!this.#stepByStep) this.#insert();
+               this.#dispatch('finished', this.#output);
+            }
          })
-         const walk = (i) => {
-            this.#tasks[i]().then((data) => {
-               progress++;
-               let [path, value] = Object.entries(data)[0];
-               this.#paths[path] = value;
-               this.#pathToTree(path, value);
-               if (this.#stepByStep) this.#insert();
-               this.#dispatch('progress', { progress, length, output: this.#output });
-               if (progress !== length) {
-                  walk(progress);
+      }
+      
+      walk(progress);
+   }
+   #fetch(url, type = 'text') {
+      let maxRequest = 5;
+      return new Promise((resolve, reject) => {
+         const request = (retryCount) => {
+            fetch(url).then(res => {
+               if (!res.ok) {
+                  throw res
                } else {
-                  if (!this.#stepByStep) this.#insert();
-                  this.#dispatch('finished', this.#output);
+                  return res[type]();
                }
-            })
+            }).then(data => {
+               resolve(data);
+            }).catch(error => {
+               if (retryCount > 0) {
+                  request(retryCount - 1)
+               } else {
+                  let { status, statusText, url } = error;
+                  reject(`${status}: ${statusText} \n - ${url}`);
+               }
+            });
+         }
+         request(maxRequest);
+      })
+   }
+   #getSources() {
+      const collect = (node, path = '') => {
+         // Template
+         if (node.template.type === 'inline' || node.template.type === 'url') {
+            const id = path ? `${path}/template` : 'template';
+            this.#addTask(node.template.type, node.template.value, id);
+         } else if (node.template.type === 'subPlayground') {
+            const id = path ? `${path}/template` : 'template';
+            collect(node.template.value, id);
          }
          
-         walk(progress);
-      }
-      #fetch(url, type = 'text') {
-         let maxRequest = 5;
-         return new Promise((resolve, reject) => {
-            const request = (retryCount) => {
-               fetch(url).then(res => {
-                  if (!res.ok) {
-                     throw res
-                  } else {
-                     return res[type]();
-                  }
-               }).then(data => {
-                  resolve(data);
-               }).catch(error => {
-                  if (retryCount > 0) {
-                     request(retryCount - 1)
-                  } else {
-                     let { status, statusText, url } = error;
-                     reject(`${status}: ${statusText} \n - ${url}`);
-                  }
-               });
-            }
-            request(maxRequest);
-         })
-      }
-      #getSources() {
-         const collect = (node, path = '') => {
-            // Template
-            if (node.template.type === 'inline' || node.template.type === 'url') {
-               const id = path ? `${path}/template` : 'template';
-               this.#addTask(node.template.type, node.template.value, id);
-            } else if (node.template.type === 'subPlayground') {
-               const id = path ? `${path}/template` : 'template';
-               collect(node.template.value, id);
-            }
-            
-            // Variables
-            for (let [key, val] of Object.entries(node.variables)) {
-               const id = path ? `${path}/variables/${key}` : `variables/${key}`;
-               if (val.type === 'inline' || val.type === 'url') {
-                  this.#addTask(val.type, val.value, id);
-               } else if (val.type === 'subPlayground') {
-                  collect(val.value, varPath);
-               }
-            }
-            
-         };
-         collect(this.#playground.output);
-      }
-      #pathToTree(path, value) {
-         const keys = path.split('/');
-         let node = this.#source;
-         
-         for (let i = 0; i < keys.length; i++) {
-            const key = keys[i];
-            if (i === keys.length - 1) {
-               node[key] = value;
-            } else {
-               if (!(key in node)) {
-                  node[key] = {};
-               }
-               node = node[key];
+         // Variables
+         for (let [key, val] of Object.entries(node.variables)) {
+            const id = path ? `${path}/variables/${key}` : `variables/${key}`;
+            if (val.type === 'inline' || val.type === 'url') {
+               this.#addTask(val.type, val.value, id);
+            } else if (val.type === 'subPlayground') {
+               collect(val.value, varPath);
             }
          }
-      }
-      #write(template, key, value, keyPattern) {
-         let arr = keyPattern.split('KEY');
-         let start = arr[0] || '';
-         let end = arr[1] || '';
-         let target = start + key + end;
-         return template.split(target).join(value);
-      }
-      #insert() {
-         let rootNode = this.#playground.output;
-         let sourceTree = this.#source;
-         let walk = (node, source) => {
-            const keyPattern = node.key;
-            let output;
-            
-            // template
-            if (typeof source.template === 'string') {
-               output = source.template;
-            } else {
-               output = walk(node.template.value, source.template);
-            }
-            
-            // variables
-            for (let [k, v] of Object.entries(source.variables || {})) {
-               const val = (typeof v === 'string') ? v : walk(node.variables[k].value, v);
-               output = this.#write(output, k, val, keyPattern);
-            }
-            
-            return output;
-         };
-         this.#output = walk(rootNode, sourceTree);
-      }
+         
+      };
+      collect(this.#playground.output);
+   }
+   #pathToTree(path, value) {
+      const keys = path.split('/');
+      let node = this.#source;
       
-      /* method */
-      setPlayground(obj) {
-         this.#playground.setPlayground(obj);
-      }
-      setName(str) {
-         this.#playground.setName(str);
-      }
-      setVersion(str) {
-         this.#playground.setVersion(str);
-      }
-      setFormat(str) {
-         this.#playground.setFormat(str);
-      }
-      setType(str) {
-         this.#playground.setType(str);
-      }
-      setContext(str) {
-         this.#playground.setContext(str);
-      }
-      setKey(str) {
-         this.#playground.setKey(str);
-      }
-      setTemplate(str) {
-         this.#playground.setTemplate(str);
-      }
-      setVariables(obj) {
-         this.#playground.setVariables(obj);
-      }
-      addVariable(variable, value) {
-         this.#playground.addVariable(variable, value);
-      }
-      
-      bundle(url) {
-         if (url) {
-            this.#fetch(url, 'json').then((data)=>{
-               this.setPlayground(data);
-               this.#getSources();
-               this.#runAllTask();
-            })
+      for (let i = 0; i < keys.length; i++) {
+         const key = keys[i];
+         if (i === keys.length - 1) {
+            node[key] = value;
          } else {
+            if (!(key in node)) {
+               node[key] = {};
+            }
+            node = node[key];
+         }
+      }
+   }
+   #write(template, key, value, keyPattern) {
+      let arr = keyPattern.split('KEY');
+      let start = arr[0] || '';
+      let end = arr[1] || '';
+      let target = start + key + end;
+      return template.split(target).join(value);
+   }
+   #insert() {
+      let rootNode = this.#playground.output;
+      let sourceTree = this.#source;
+      let walk = (node, source) => {
+         const keyPattern = node.key;
+         let output;
+         
+         // template
+         if (typeof source.template === 'string') {
+            output = source.template;
+         } else {
+            output = walk(node.template.value, source.template);
+         }
+         
+         // variables
+         for (let [k, v] of Object.entries(source.variables || {})) {
+            const val = (typeof v === 'string') ? v : walk(node.variables[k].value, v);
+            output = this.#write(output, k, val, keyPattern);
+         }
+         
+         return output;
+      };
+      this.#output = walk(rootNode, sourceTree);
+   }
+   
+   /* method */
+   setPlayground(obj) {
+      this.#playground.setPlayground(obj);
+   }
+   setName(str) {
+      this.#playground.setName(str);
+   }
+   setVersion(str) {
+      this.#playground.setVersion(str);
+   }
+   setFormat(str) {
+      this.#playground.setFormat(str);
+   }
+   setType(str) {
+      this.#playground.setType(str);
+   }
+   setContext(str) {
+      this.#playground.setContext(str);
+   }
+   setKey(str) {
+      this.#playground.setKey(str);
+   }
+   setTemplate(str) {
+      this.#playground.setTemplate(str);
+   }
+   setVariables(obj) {
+      this.#playground.setVariables(obj);
+   }
+   addVariable(variable, value) {
+      this.#playground.addVariable(variable, value);
+   }
+   
+   bundle(url) {
+      if (url) {
+         this.#fetch(url, 'json').then((data) => {
+            this.setPlayground(data);
             this.#getSources();
             this.#runAllTask();
-         }
-      }
-      
-      /* event */
-      set onstart(callback) {
-         this.#target.addEventListener('start', (e) => callback(e.detail));
-      }
-      set onprogress(callback) {
-         this.#target.addEventListener('progress', (e) => callback(e.detail));
-      }
-      set onfinished(callback) {
-         this.#target.addEventListener('finished', (e) => callback(e.detail));
+         })
+      } else {
+         this.#getSources();
+         this.#runAllTask();
       }
    }
    
-   // export
-   global.Bundle = Bundle;
-   
-})(globalThis);
+   /* event */
+   set onstart(callback) {
+      this.#target.addEventListener('start', (e) => callback(e.detail));
+   }
+   set onprogress(callback) {
+      this.#target.addEventListener('progress', (e) => callback(e.detail));
+   }
+   set onfinished(callback) {
+      this.#target.addEventListener('finished', (e) => callback(e.detail));
+   }
+}
