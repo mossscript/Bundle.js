@@ -1,0 +1,21 @@
+{
+   "key": "$KEY",
+   "template": {
+      "type": "subPlayground",
+      "value": {
+         "key": "<KEY/>",
+         "template": {
+            "type": "url",
+            "value": "files/template.xml"
+         },
+         "variables": {
+            "A": "Bundle.js",
+            "B": "V2"
+         }
+      }
+   },
+   "variables": {
+      "A": "Hello",
+      "B": "Bundle"
+   }
+}
