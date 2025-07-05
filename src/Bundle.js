@@ -1,31 +1,83 @@
-class Bundle {
-   /*** privet variable ***/
-   #target;
-   #playground;
-   #tasks;
-   #source;
-   #paths;
-   #output;
-   #format;
-   #stepByStep;
-   
-   /*** constructor ***/
-   constructor() {
-      this.version = '1.0.0';
-      this.#target = new EventTarget();
-      this.#playground = new this.#Playground();
-      this.#source = {};
-      this.#paths = {};
-      this.#tasks = [];
-      this.#stepByStep = true;
+/*!
+ * Bundle.js v2.0.0
+ * (c) 2025 Mossscript 
+ * Released under the Apache 2.0 License
+ */
+ 
+((G) => {
+   // ----------
+   // Validation
+   // ----------
+   class Validation {
+      /*** constructor ***/
+      constructor() {
+         
+      }
+      /*** method ***/
+      // alphabet 
+      string(input) {
+         return typeof input === 'string';
+      }
+      object(input) {
+         return typeof input === 'object' && !Array.isArray(input) && input !== null;
+      }
+      // CaseLess World
+      subPlayground(input) {
+         return this.string(input) && /^(subPlayground)$/i.test(input);
+      }
+      inline(input) {
+         return this.string(input) && /^(inline)$/i.test(input);
+      }
+      url(input) {
+         return this.string(input) && /^(url)$/i.test(input);
+      }
+      inherit(input) {
+         return this.string(input) && /^(inherit)$/i.test(input);
+      }
+      default (input) {
+         return this.string(input) && /^(default)$/i.test(input);
+      }
+      // config
+      name(input) {
+         return this.string(input) && /^[a-z][a-z0-9_.\-]*$/i.test(input);
+      }
+      version(input) {
+         return this.string(input) && /^\d+(?:\.\d+)*$/.test(input);
+      }
+      type(input) {
+         return this.string(input) && /^(url|inline|subPlayground)$/i.test(input);
+      }
+      format(input) {
+         return this.string(input) && /^[a-z][a-z0-9]*$/i.test(input);
+      }
+      context(input) {
+         return this.string(input) && /^(text|base64|fromBase64|binary|fromBinary|encode|fromEncodeURL)$/i.test(input);
+      }
+      key(input) {
+         return this.string(input) && /^(?=[\s\S]*KEY[\s\S]*$)(?![\s\S]*KEY[\s\S]*KEY[\s\S]*$)/.test(input);
+      }
+      variable(input) {
+         return this.string(input) && /^[a-z0-9_\-]+$/i.test(input);
+      }
+      // other
+      relativeValues(input) {
+         return this.string(input) && /^(inherit|default)$/i.test(input);
+      }
+      emptyObject(input) {
+         return Object.keys(input).length === 0;
+      }
+      depth(input) {
+         return input >= 10;
+      }
    }
    
-   /*** private class ***/
-   #Playground = class {
-      /* private variable */
+   // ----------
+   // Playground
+   // ----------
+   class Playground {
+      /*** private variable ***/
       #raw;
-      
-      /* private object */
+      /*** private object ***/
       #D = {
          name: 'bundle',
          version: '1.0.0',
@@ -36,69 +88,11 @@ class Bundle {
          template: '',
          variables: {},
       }
-      #V = {
-         // setField
-         name: (input) => {
-            return typeof input === 'string' && /^[a-z][a-z0-9_.\-]*$/i.test(input);
-         },
-         version: (input) => {
-            return typeof input === 'string' && /^\d+(?:\.\d+)*$/.test(input);
-         },
-         type: (input) => {
-            return typeof input === 'string' && /^(url|inline)$/i.test(input);
-         },
-         format: (input) => {
-            return typeof input === 'string' && /^[a-z][a-z0-9]*$/i.test(input);
-         },
-         context: (input) => {
-            return typeof input === 'string' && /^(text|base64|binary|encode)$/i.test(input);
-         },
-         key: (input) => {
-            return typeof input === 'string' && /^(?=[\s\S]*KEY[\s\S]*$)(?![\s\S]*KEY[\s\S]*KEY[\s\S]*$)/i.test(input);
-         },
-         template: (input) => {
-            return typeof input === 'string' || (typeof input === 'object' && !Array.isArray(input) && input !== null);
-         },
-         variables: (input) => {
-            return typeof input === 'object' && !Array.isArray(input) && input !== null;
-         },
-         // other 
-         variablesKey: (input) => {
-            return typeof input === 'string' && /^[a-z0-9_.-]+$/i.test(input);
-         },
-         relativeValue: (input) => {
-            return typeof input === 'string' && /^(default|inherit)$/i.test(input);
-         },
-         isInherit: (input) => {
-            return typeof input === 'string' && /^(inherit)$/i.test(input);
-         },
-         isDefault: (input) => {
-            return typeof input === 'string' && /^(default)$/i.test(input);
-         },
-         isString: (input) => {
-            return typeof input === 'string';
-         },
-         isObject: (input) => {
-            return typeof input === 'object' && !Array.isArray(input) && input !== null;
-         },
-         isPlayground: (input) => {
-            return typeof input === 'string' && /^(subPlayground)$/i.test(input);
-         },
-         depth: (input) => {
-            return input >= 10;
-         },
-      }
-      
-      /* constructor */
+      /*** constructor ***/
       constructor() {
          this.#raw = {};
       }
-      
-      /* private method */
-      #setField(key, value, code) {
-         if (this.#V[key](value)) this.#raw[key] = value;
-         else this.#warn(code, value);
-      }
+      /*** private method ***/
       #warn(code, warn) {
          let messages = {
             0: `Invalid 'name': ${warn}`,
@@ -115,7 +109,7 @@ class Bundle {
       }
       #normalize(input = {}, parent = null, root = this.#D, depth = 0) {
          // validation 
-         let V = this.#V;
+         let V = new Validation();
          if (V.depth(depth)) {
             this.#warn(20);
             return {};
@@ -127,8 +121,8 @@ class Bundle {
          
          // Normalize template
          let template = obj.template;
-         if (V.isString(template)) {
-            if (V.relativeValue(template)) {
+         if (V.string(template)) {
+            if (V.relativeValues(template)) {
                template = {
                   type: template,
                   value: '',
@@ -139,23 +133,20 @@ class Bundle {
                   value: template,
                };
             }
-         }
-         if (V.isObject(template)) {
+         } else if (V.object(template)) {
             let tempType = template.type || type;
             let value = template.value;
-            if (V.isInherit(template.type)) {
-               value = parent?.template?.value || '';
+            if (V.inherit(template.type)) {
                tempType = parent?.template?.type || type;
-            } else if (V.isDefault(template.type)) {
-               value = root.template?.value || '';
+            } else if (V.default(template.type)) {
                tempType = root.template?.type || type;
             }
-            if (V.isPlayground(tempType) && V.isObject(value)) {
+            if (V.subPlayground(tempType) && V.object(value)) {
                value = this.#normalize(value, obj, root, depth + 1);
             }
             template = {
                type: tempType,
-               value: V.isString(value) || V.isObject(value) ? value : '',
+               value: V.string(value) || V.object(value) ? value : '',
             };
          } else {
             template = {
@@ -166,21 +157,21 @@ class Bundle {
          
          // Normalize variables
          const resultVars = {};
-         const rawVars = V.isObject(obj.variables) ? obj.variables : {};
+         const rawVars = V.object(obj.variables) ? obj.variables : {};
          for (const [k, v] of Object.entries(rawVars)) {
-            if (!V.variablesKey(k)) {
+            if (!V.variable(k)) {
                this.#warn(7, k);
                continue;
             }
             
-            if (V.isString(v)) {
+            if (V.string(v)) {
                resultVars[k] = {
                   type: type,
                   context: context,
                   value: v,
                };
-            } else if (V.isObject(v)) {
-               if (V.isPlayground(v.type)) {
+            } else if (V.object(v)) {
+               if (V.subPlayground(v.type)) {
                   resultVars[k] = {
                      type: 'subPlayground',
                      context: v.context || context,
@@ -215,263 +206,417 @@ class Bundle {
             variables: resultVars,
          };
       }
-      
-      /* property */
+      /*** property ***/
       get output() {
          return this.#normalize(this.#raw);;
       }
       get raw() {
          return this.#raw;
       }
-      
-      /* method */
-      setPlayground(input = {}) {
-         for (let [key, value] of Object.entries(input)) {
-            const method = `set${key[0].toUpperCase()}${key.slice(1)}`;
-            if (typeof this[method] === 'function') {
-               this[method](value);
-            }
-         }
+      get default() {
+         return this.#D;
       }
-      
+      /*** method ***/
+      setPlayground(input = {}) {
+         this.#raw = input;
+      }
       setName(input) {
-         this.#setField('name', input, 0);
+         this.#raw.name = input;
       }
       setVersion(input) {
-         this.#setField('version', input, 1);
+         this.#raw.version = input;
       }
       setFormat(input) {
-         this.#setField('format', input, 2);
+         this.#raw.format = input;
       }
       setType(input) {
-         this.#setField('type', input, 3);
+         this.#raw.type = input;
       }
       setContext(input) {
-         this.#setField('context', input, 4);
+         this.#raw.context = input;
       }
       setKey(input) {
-         this.#setField('key', input, 5);
+         this.#raw.key = input;
       }
       setTemplate(input) {
-         this.#setField('template', input, 6);
+         this.#raw.template = input;
       }
       setVariables(input) {
-         this.#setField('variables', input, 7);
+         this.#raw.variables = input;
       }
-      
       addVariable(key, value) {
-         if (this.#V.variablesKey(key)) {
-            if (!this.#V.variables(this.#raw.variables)) {
-               this.#raw.variables = {};
-            }
-            this.#raw.variables[key] = value
-         } else {
-            this.#warn(7, key);
+         if (this.#raw.variables) {
+            this.#raw.variables = {};
          }
+         this.#raw.variables[key] = value
       }
    }
    
-   /*** privet method ***/
-   #dispatch(event, detail = {}) {
-      this.#target.dispatchEvent(new CustomEvent(event, { detail }));
-   }
-   #addTask(type, value, path) {
-      if (type === 'inline') {
-         this.#tasks.push(() => Promise.resolve().then(() => {
-            return {
-               [path]: value };
-         }));
+   // ------
+   // Bundle
+   // ------
+   class Bundle {
+      /*** privet variable ***/
+      #P; // Playground 
+      #E; // EventTarget
+      #V; // Validation 
+      #T; // Tasks 
+      #O; // Output 
+      #F; // Format 
+      #ST; // Source Tree
+      #SP; // Source Path
+      #SBS; // StepByStep
+      
+      /*** constructor ***/
+      constructor() {
+         this.version = '1.0.0';
+         this.#E = new EventTarget();
+         this.#V = new Validation();
+         this.#P = new Playground();
+         this.#T = [];
+         this.#ST = {};
+         this.#SP = {};
+         this.#SBS = false;
       }
-      if (type === 'url') {
-         this.#tasks.push(() => this.#fetch(value).then((data) => {
-            return {
-               [path]: data };
-         }));
+      
+      /*** privet method ***/
+      #warn(code, warn) {
+         let lib = {
+            0: `\nThe playground is empty!`,
+            1: `\nPlayground not found!\nurl: ${warn}`,
+            2: `\n${warn.message}!\nurl: ${warn.url}`,
+            3: `\nThe playground must be an object!`,
+            4: `\nInvalid name! "${warn}"\nThe name must start with a letter and can only contain letters, numbers, dot(.), hyphens(-), and underscores(_).`,
+            5: `\nInvalid version format! "${warn}"\nPlease use a version number like "1", "1.0", or "10.200.300".`,
+            6: `\nInvalid type! "${warn}"\nThe type must be either "url", "inline" or "subPlayground".`,
+            7: `\nInvalid format! "${warn}"\nThe input must start with a letter and can only contain letters and numbers.`,
+            8: `\nInvalid context! "${warn}"\nThe context must be one of the following: "text", "base64", "fromBase64", "binary", "fromBinary", "encode", or "fromEncodeURL".`,
+            9: `\nInvalid key! "${warn}"\nThe input must contain the word "KEY" exactly once, regardless of capitalization.`,
+            10: `\nInvalid template! "${warn}"\nThe template must be a string or valid object.`,
+            11: `\nInvalid variables! "${warn}"\nThe variables must be a valid object.`,
+            12: `\nInvalid variables key"! "${warn}"\nThe variables key must be a valid object or a string with letters, numbers, hyphens(-), and underscores(_).`,
+         }
+         console.warn('[Bundle.js]', lib[code])
       }
-   }
-   #runAllTask() {
-      let progress = 0;
-      let length = this.#tasks.length;
-      queueMicrotask(() => {
-         this.#dispatch('start', { length })
-      })
-      const walk = (i) => {
-         this.#tasks[i]().then((data) => {
-            progress++;
-            let [path, value] = Object.entries(data)[0];
-            this.#paths[path] = value;
-            this.#pathToTree(path, value);
-            if (this.#stepByStep) this.#insert();
-            this.#dispatch('progress', { progress, length, output: this.#output });
-            if (progress !== length) {
-               walk(progress);
-            } else {
-               if (!this.#stepByStep) this.#insert();
-               this.#dispatch('finished', this.#output);
+      #dispatch(event, detail = {}) {
+         this.#E.dispatchEvent(new CustomEvent(event, { detail }));
+      }
+      #addTask(type, value, path) {
+         if (this.#V.inline(type)) {
+            this.#T.push(() => Promise.resolve().then(() => {
+               return {
+                  [path]: value
+               };
+            }));
+         }
+         if (this.#V.url(type)) {
+            this.#T.push(() => this.#fetch(value).then((data) => {
+               return {
+                  [path]: data
+               };
+            }));
+         }
+      }
+      #runAllTask() {
+         let progress = 0;
+         let length = this.#T.length;
+         queueMicrotask(() => {
+            this.#dispatch('start', { length })
+         })
+         const walk = (i) => {
+            this.#T[i]().then((data) => {
+               progress++;
+               let [path, value] = Object.entries(data)[0];
+               this.#SP[path] = value;
+               this.#pathToTree(path, value);
+               if (this.#SBS) this.#insert();
+               this.#dispatch('progress', { progress, length, output: this.#O });
+               if (progress !== length) {
+                  walk(progress);
+               } else {
+                  if (!this.#SBS) this.#insert();
+                  this.#dispatch('finished', this.#O);
+               }
+            })
+         }
+         
+         walk(progress);
+      }
+      #fetch(url, type = 'text') {
+         let maxRequest = 5;
+         return new Promise((resolve, reject) => {
+            const request = (retryCount) => {
+               fetch(url).then(res => {
+                  if (!res.ok) {
+                     throw res
+                  } else {
+                     return res[type]();
+                  }
+               }).then(data => {
+                  resolve(data);
+               }).catch(error => {
+                  if (retryCount > 0) {
+                     request(retryCount - 1)
+                  } else {
+                     reject(error);
+                  }
+               });
             }
+            request(maxRequest);
          })
       }
-      
-      walk(progress);
-   }
-   #fetch(url, type = 'text') {
-      let maxRequest = 5;
-      return new Promise((resolve, reject) => {
-         const request = (retryCount) => {
-            fetch(url).then(res => {
-               if (!res.ok) {
-                  throw res
-               } else {
-                  return res[type]();
-               }
-            }).then(data => {
-               resolve(data);
-            }).catch(error => {
-               if (retryCount > 0) {
-                  request(retryCount - 1)
-               } else {
-                  let { status, statusText, url } = error;
-                  reject(`${status}: ${statusText} \n - ${url}`);
-               }
-            });
-         }
-         request(maxRequest);
-      })
-   }
-   #getSources() {
-      const collect = (node, path = '') => {
-         // Template
-         if (node.template.type === 'inline' || node.template.type === 'url') {
-            const id = path ? `${path}/template` : 'template';
-            this.#addTask(node.template.type, node.template.value, id);
-         } else if (node.template.type === 'subPlayground') {
-            const id = path ? `${path}/template` : 'template';
-            collect(node.template.value, id);
-         }
-         
-         // Variables
-         for (let [key, val] of Object.entries(node.variables)) {
-            const id = path ? `${path}/variables/${key}` : `variables/${key}`;
-            if (val.type === 'inline' || val.type === 'url') {
-               this.#addTask(val.type, val.value, id);
-            } else if (val.type === 'subPlayground') {
-               collect(val.value, varPath);
+      #getSources() {
+         const V = this.#V;
+         const collect = (node, path = '') => {
+            // Template
+            if (V.url(node.template.type) || V.inline(node.template.type)) {
+               const id = path ? `${path}/template` : 'template';
+               this.#addTask(node.template.type, node.template.value, id);
+            } else if (V.subPlayground(node.template.type)) {
+               const id = path ? `${path}/template` : 'template';
+               collect(node.template.value, id);
             }
-         }
-         
-      };
-      collect(this.#playground.output);
-   }
-   #pathToTree(path, value) {
-      const keys = path.split('/');
-      let node = this.#source;
-      
-      for (let i = 0; i < keys.length; i++) {
-         const key = keys[i];
-         if (i === keys.length - 1) {
-            node[key] = value;
-         } else {
-            if (!(key in node)) {
-               node[key] = {};
+            
+            // Variables
+            for (let [key, val] of Object.entries(node.variables)) {
+               const id = path ? `${path}/variables/${key}` : `variables/${key}`;
+               if (V.url(val.type) || V.inline(val.type)) {
+                  this.#addTask(val.type, val.value, id);
+               } else if (V.subPlayground(val.type)) {
+                  collect(val.value, id);
+               }
             }
-            node = node[key];
+            
+         };
+         
+         collect(this.#P.output);
+      }
+      #pathToTree(path, value) {
+         const keys = path.split('/');
+         let node = this.#ST;
+         
+         for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            if (i === keys.length - 1) {
+               node[key] = value;
+            } else {
+               if (!(key in node)) {
+                  node[key] = {};
+               }
+               node = node[key];
+            }
          }
       }
-   }
-   #write(template, key, value, keyPattern) {
-      let arr = keyPattern.split('KEY');
-      let start = arr[0] || '';
-      let end = arr[1] || '';
-      let target = start + key + end;
-      return template.split(target).join(value);
-   }
-   #insert() {
-      let rootNode = this.#playground.output;
-      let sourceTree = this.#source;
-      let walk = (node, source) => {
-         const keyPattern = node.key;
-         let output;
+      #write(template, key, value, keyPattern) {
+         let arr = keyPattern.split('KEY');
+         let start = arr[0] || '';
+         let end = arr[1] || '';
+         let target = start + key + end;
+         return template.split(target).join(value);
+      }
+      #insert() {
+         let rootNode = this.#P.output;
+         let sourceTree = this.#ST;
+         let walk = (node, source) => {
+            const keyPattern = node.key;
+            let output;
+            
+            // template
+            if (typeof source.template === 'string') {
+               output = source.template;
+            } else {
+               output = walk(node.template.value, source.template);
+            }
+            
+            // variables
+            for (let [k, v] of Object.entries(source.variables || {})) {
+               const val = (typeof v === 'string') ? v : walk(node.variables[k].value, v);
+               output = this.#write(output, k, val, keyPattern);
+            }
+            
+            return output;
+         };
+         this.#O = walk(rootNode, sourceTree);
+      }
+      #deepCheck(playground) {
+         const result = {};
+         const V = this.#V;
          
-         // template
-         if (typeof source.template === 'string') {
-            output = source.template;
+         const walk = (node, path = [], out = result, depth = 0) => {
+            let current = {};
+            
+            if (!V.object(node)) {
+               this.#warn(3, playground);
+               return;
+            }
+            if (V.emptyObject(node)) {
+               this.#warn(0, playground);
+               return;
+            }
+            
+            if (node.name) {
+               if (V.name(node.name)) {
+                  current.name = node.name;
+               } else {
+                  this.#warn(4, node.name);
+               }
+            }
+            if (node.version) {
+               if (V.version(node.version)) {
+                  current.version = node.version;
+               } else {
+                  this.#warn(5, node.version);
+               }
+            }
+            if (node.type) {
+               if ((depth === 0) ? (V.type(node.type)) : (V.type(node.type) || V.relativeValues(node.type))) {
+                  current.type = node.type;
+               } else {
+                  this.#warn(6, node.type);
+               }
+            }
+            if (node.format) {
+               if (V.format(node.format)) {
+                  current.format = node.format;
+               } else {
+                  this.#warn(7, node.format);
+               }
+            }
+            if (node.context) {
+               if ((depth === 0) ? (V.context(node.context)) : (V.context(node.context) || V.relativeValues(node.context))) {
+                  current.context = node.context;
+               } else {
+                  this.#warn(8, node.context);
+               }
+            }
+            if (node.key) {
+               if (V.key(node.key)) {
+                  current.key = node.key;
+               } else {
+                  this.#warn(9, node.key);
+               }
+            }
+            
+            if (node.template) {
+               if (V.object(node.template) || V.string(node.template)) {
+                  if (V.subPlayground(node.template.type)) {
+                     walk(node.template, [...path, 'template'], current, depth + 1);
+                  } else {
+                     current.template = node.template;
+                  }
+               } else {
+                  this.#warn(10, node.template)
+               }
+            }
+            
+            if (node.variables) {
+               if (V.object(node.variables)) {
+                  for (let key in node.variables) {
+                     if (V.object(key) || V.variable(key)) {
+                        if (V.subPlayground(node.variables[key].type)) {
+                           if (!current.variables[key]) current.variables[key] = {};
+                           current.variables[key] = node.variables[key];
+                           walk(node.variables[key].value, [...path, 'variables', key], current.value, depth + 1);
+                        } else {
+                           if (!current.variables) current.variables = {};
+                           current.variables[key] = node.variables[key];
+                        }
+                     } else {
+                        this.#warn(12, key)
+                     }
+                  }
+               } else {
+                  this.#warn(11, node.variables);
+               }
+            }
+            
+            
+            //save
+            let pointer = out;
+            for (let key of path) {
+               pointer[key] = pointer[key] || {};
+               pointer = pointer[key];
+            }
+            Object.assign(pointer, current);
+         };
+         
+         walk(playground);
+         this.setPlayground(result);
+      }
+      
+      /*** method ***/
+      setPlayground(obj) {
+         this.#P.setPlayground(obj);
+      }
+      setName(str) {
+         this.#P.setName(str);
+      }
+      setVersion(str) {
+         this.#P.setVersion(str);
+      }
+      setFormat(str) {
+         this.#P.setFormat(str);
+      }
+      setType(str) {
+         this.#P.setType(str);
+      }
+      setContext(str) {
+         this.#P.setContext(str);
+      }
+      setKey(str) {
+         this.#P.setKey(str);
+      }
+      setTemplate(str) {
+         this.#P.setTemplate(str);
+      }
+      setVariables(obj) {
+         this.#P.setVariables(obj);
+      }
+      addVariable(variable, value) {
+         this.#P.addVariable(variable, value);
+      }
+      bundle(url) {
+         if (url) {
+            this.#fetch(url, 'json').then((data) => {
+               this.#deepCheck(data);
+               this.#F = this.#P.output.format;
+               this.#dispatch('load', this.#P.output);
+               this.#getSources();
+               this.#runAllTask();
+            }).catch((error) => {
+               if (error.status === 404) {
+                  this.#warn(1, error.url);
+                  return;
+               }
+               this.#warn(2, { message: error.message, url });
+            })
          } else {
-            output = walk(node.template.value, source.template);
-         }
-         
-         // variables
-         for (let [k, v] of Object.entries(source.variables || {})) {
-            const val = (typeof v === 'string') ? v : walk(node.variables[k].value, v);
-            output = this.#write(output, k, val, keyPattern);
-         }
-         
-         return output;
-      };
-      this.#output = walk(rootNode, sourceTree);
-   }
-   
-   /*** method ***/
-   setPlayground(obj) {
-      this.#playground.setPlayground(obj);
-   }
-   setName(str) {
-      this.#playground.setName(str);
-   }
-   setVersion(str) {
-      this.#playground.setVersion(str);
-   }
-   setFormat(str) {
-      this.#playground.setFormat(str);
-   }
-   setType(str) {
-      this.#playground.setType(str);
-   }
-   setContext(str) {
-      this.#playground.setContext(str);
-   }
-   setKey(str) {
-      this.#playground.setKey(str);
-   }
-   setTemplate(str) {
-      this.#playground.setTemplate(str);
-   }
-   setVariables(obj) {
-      this.#playground.setVariables(obj);
-   }
-   addVariable(variable, value) {
-      this.#playground.addVariable(variable, value);
-   }
-   
-   bundle(url) {
-      if (url) {
-         this.#fetch(url, 'json').then((data) => {
-            this.setPlayground(data);
-            this.#format = this.#playground.output.format;
-            this.#dispatch('load', this.#playground.output);
+            this.#deepCheck(data);
+            this.#F = this.#P.output.format;
             this.#getSources();
             this.#runAllTask();
-         })
-      } else {
-         this.#format = this.#playground.output.format;
-         this.#getSources();
-         this.#runAllTask();
-         queueMicrotask(()=>{
-            this.#dispatch('load', this.#playground.output);
-         })
+            queueMicrotask(() => {
+               this.#dispatch('load', this.#P.output);
+            })
+         }
+      }
+      
+      /*** event ***/
+      set onload(callback) {
+         this.#E.addEventListener('load', (e) => callback(e.detail));
+      }
+      set onstart(callback) {
+         this.#E.addEventListener('start', (e) => callback(e.detail));
+      }
+      set onprogress(callback) {
+         this.#E.addEventListener('progress', (e) => callback(e.detail));
+      }
+      set onfinished(callback) {
+         this.#E.addEventListener('finished', (e) => callback(e.detail));
       }
    }
    
-   /*** event ***/
-   set onload(callback) {
-      this.#target.addEventListener('load', (e) => callback(e.detail));
-   }
-   set onstart(callback) {
-      this.#target.addEventListener('start', (e) => callback(e.detail));
-   }
-   set onprogress(callback) {
-      this.#target.addEventListener('progress', (e) => callback(e.detail));
-   }
-   set onfinished(callback) {
-      this.#target.addEventListener('finished', (e) => callback(e.detail));
-   }
-}
+   // Export 
+   G.Bundle = Bundle;
+   
+})(globalThis)
