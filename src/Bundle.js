@@ -292,6 +292,7 @@
             11: `\nInvalid variables! "${warn}"\nThe variables must be a valid object.`,
             12: `\nInvalid variables key"! "${warn}"\nThe variables key must be a valid object or a string with letters, numbers, hyphens(-), and underscores(_).`,
             13: `\nInvalid variables value"! "${warn}"\nThe variables must be string or a valid object.`,
+            100: warn,
          }
          console.warn('[Bundle.js]', lib[code])
       }
@@ -299,6 +300,8 @@
          this.#E.dispatchEvent(new CustomEvent(event, { detail }));
       }
       #addTask(type, value, context, path) {
+         context = context ?? 'text';
+         
          if (this.#V.inline(type)) {
             this.#T.push(() => Promise.resolve().then(() => {
                return {
@@ -307,11 +310,19 @@
             }));
          }
          if (this.#V.url(type)) {
-            this.#T.push(() => this.#fetch(value).then((data) => {
-               return {
-                  [path]: data
-               };
-            }));
+            if (context.toLowerCase() == 'base64') {
+               this.#T.push(() => this.#fetch(value, 'blob').then((data) => {
+                  return {
+                     [path]: data
+                  };
+               }))
+            } else {
+               this.#T.push(() => this.#fetch(value).then((data) => {
+                  return {
+                     [path]: this.#context(data, context)
+                  };
+               }))
+            }
          }
       }
       #runAllTask() {
@@ -334,6 +345,14 @@
                   if (!this.#SBS) this.#insert();
                   this.#dispatch('finished', this.#O);
                }
+            }).catch((e) => {
+               progress++;
+               if (progress !== length) {
+                  walk(progress);
+               } else {
+                  this.#dispatch('finished', this.#O);
+               }
+               this.#warn(100, e);
             })
          }
          
@@ -350,17 +369,26 @@
                      return res[type]();
                   }
                }).then(data => {
-                  resolve(data);
+                  if (type == 'blob') this.#fileToBase64(data).then(x => resolve(x)).catch(e => reject(e));
+                  else resolve(data);
                }).catch(error => {
                   if (retryCount > 0) {
                      request(retryCount - 1)
                   } else {
-                     reject(error);
+                     reject(`\nError getting link! \n${error.statusText} (${error.status}) \nurl: ${error.url}`);
                   }
                });
             }
             request(maxRequest);
          })
+      }
+      #fileToBase64(blob) {
+         return new Promise((resolve, reject) => {
+            let reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject('Error getting base64');
+         });
       }
       #getSources() {
          const V = this.#V;
@@ -434,6 +462,39 @@
             return output;
          };
          this.#O = walk(rootNode, sourceTree);
+      }
+      #context(input, context) {
+         switch (context.toLowerCase()) {
+            case 'text': {
+               return input;
+            }
+            case 'encodeurl': {
+               return encodeURIComponent(input);
+            }
+            case 'fromencodeurl':
+            case 'decodeurl': {
+               return decodeURIComponent(input);
+            }
+            case 'base64': {
+               return btoa(unescape(encodeURIComponent(input)));
+            }
+            case 'frombase64': {
+               return decodeURIComponent(escape(atob(input)));
+            }
+            case 'binary': {
+               let encoder = new TextEncoder();
+               return [...encoder.encode(input)].map(byte => byte.toString(2).padStart(8, '0')).join('');
+            }
+            case 'frombinary': {
+               let decoder = new TextDecoder();
+               let bytes = input.match(/.{1,8}/g).map(bin => parseInt(bin, 2));
+               let uint8Array = new Uint8Array(bytes);
+               return decoder.decode(uint8Array);
+            }
+            default: {
+               return input;
+            }
+         }
       }
       #deepCheck(playground) {
          const result = {};
@@ -560,41 +621,6 @@
          walk(playground);
          this.setPlayground(result);
       }
-      #context(input, context) {
-         context = context ?? 'text';
-         
-         switch (context.toLowerCase()) {
-            case 'text': {
-               return input;
-            }
-            case 'encodeurl': {
-               return encodeURIComponent(input);
-            }
-            case 'fromencodeurl': 
-            case 'decodeurl': {
-               return decodeURIComponent(input);
-            }
-            case 'base64': {
-               return btoa(unescape(encodeURIComponent(input)));
-            }
-            case 'frombase64': {
-               return decodeURIComponent(escape(atob(input)));
-            }
-            case 'binary': {
-               let encoder = new TextEncoder();
-               return [...encoder.encode(input)].map(byte => byte.toString(2).padStart(8, '0')).join('');
-            }
-            case 'frombinary': {
-               let decoder = new TextDecoder();
-               let bytes = input.match(/.{1,8}/g).map(bin => parseInt(bin, 2));
-               let uint8Array = new Uint8Array(bytes);
-               return decoder.decode(uint8Array);
-            }
-            default: {
-               return input;
-            }
-         }
-      }
       
       /*** method ***/
       setPlayground(obj) {
@@ -631,7 +657,6 @@
          if (url) {
             this.#fetch(url, 'json').then((data) => {
                this.#deepCheck(data);
-               this.#F = this.#P.output.format;
                this.#dispatch('load', this.#P.output);
                this.#getSources();
                this.#runAllTask();
@@ -643,8 +668,7 @@
                this.#warn(2, { message: error.message, url });
             })
          } else {
-            this.#deepCheck(data);
-            this.#F = this.#P.output.format;
+            this.#deepCheck(this.#P.output);
             this.#getSources();
             this.#runAllTask();
             queueMicrotask(() => {
