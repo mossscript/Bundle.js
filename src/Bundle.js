@@ -3,7 +3,7 @@
  * (c) 2025 Mossscript 
  * Released under the Apache 2.0 License
  */
- 
+
 ((G) => {
    // ----------
    // Validation
@@ -14,14 +14,12 @@
          
       }
       /*** method ***/
-      // alphabet 
       string(input) {
          return typeof input === 'string';
       }
       object(input) {
          return typeof input === 'object' && !Array.isArray(input) && input !== null;
       }
-      // CaseLess World
       subPlayground(input) {
          return this.string(input) && /^(subPlayground)$/i.test(input);
       }
@@ -37,7 +35,6 @@
       default (input) {
          return this.string(input) && /^(default)$/i.test(input);
       }
-      // config
       name(input) {
          return this.string(input) && /^[a-z][a-z0-9_.\-]*$/i.test(input);
       }
@@ -51,7 +48,7 @@
          return this.string(input) && /^[a-z][a-z0-9]*$/i.test(input);
       }
       context(input) {
-         return this.string(input) && /^(text|base64|fromBase64|binary|fromBinary|encode|fromEncodeURL)$/i.test(input);
+         return this.string(input) && /^(text|base64|fromBase64|binary|fromBinary|encodeURL|fromEncodeURL|decodeURL|buffer)$/i.test(input);
       }
       key(input) {
          return this.string(input) && /^(?=[\s\S]*KEY[\s\S]*$)(?![\s\S]*KEY[\s\S]*KEY[\s\S]*$)/.test(input);
@@ -59,7 +56,6 @@
       variable(input) {
          return this.string(input) && /^[a-z0-9_\-]+$/i.test(input);
       }
-      // other
       relativeValues(input) {
          return this.string(input) && /^(inherit|default)$/i.test(input);
       }
@@ -290,22 +286,23 @@
             5: `\nInvalid version format! "${warn}"\nPlease use a version number like "1", "1.0", or "10.200.300".`,
             6: `\nInvalid type! "${warn}"\nThe type must be either "url", "inline" or "subPlayground".`,
             7: `\nInvalid format! "${warn}"\nThe input must start with a letter and can only contain letters and numbers.`,
-            8: `\nInvalid context! "${warn}"\nThe context must be one of the following: "text", "base64", "fromBase64", "binary", "fromBinary", "encode", or "fromEncodeURL".`,
+            8: `\nInvalid context! "${warn}"\nThe context must be one of the following: "text", "base64", "fromBase64", "binary", "fromBinary", "encodeURL", "fromEncodeURL" or "decodeURL".`,
             9: `\nInvalid key! "${warn}"\nThe input must contain the word "KEY" exactly once, regardless of capitalization.`,
             10: `\nInvalid template! "${warn}"\nThe template must be a string or valid object.`,
             11: `\nInvalid variables! "${warn}"\nThe variables must be a valid object.`,
             12: `\nInvalid variables key"! "${warn}"\nThe variables key must be a valid object or a string with letters, numbers, hyphens(-), and underscores(_).`,
+            13: `\nInvalid variables value"! "${warn}"\nThe variables must be string or a valid object.`,
          }
          console.warn('[Bundle.js]', lib[code])
       }
       #dispatch(event, detail = {}) {
          this.#E.dispatchEvent(new CustomEvent(event, { detail }));
       }
-      #addTask(type, value, path) {
+      #addTask(type, value, context, path) {
          if (this.#V.inline(type)) {
             this.#T.push(() => Promise.resolve().then(() => {
                return {
-                  [path]: value
+                  [path]: this.#context(value, context)
                };
             }));
          }
@@ -371,7 +368,7 @@
             // Template
             if (V.url(node.template.type) || V.inline(node.template.type)) {
                const id = path ? `${path}/template` : 'template';
-               this.#addTask(node.template.type, node.template.value, id);
+               this.#addTask(node.template.type, node.template.value, null, id);
             } else if (V.subPlayground(node.template.type)) {
                const id = path ? `${path}/template` : 'template';
                collect(node.template.value, id);
@@ -381,7 +378,7 @@
             for (let [key, val] of Object.entries(node.variables)) {
                const id = path ? `${path}/variables/${key}` : `variables/${key}`;
                if (V.url(val.type) || V.inline(val.type)) {
-                  this.#addTask(val.type, val.value, id);
+                  this.#addTask(val.type, val.value, val.context, id);
                } else if (V.subPlayground(val.type)) {
                   collect(val.value, id);
                }
@@ -497,6 +494,7 @@
                }
             }
             
+            // temple 
             if (node.template) {
                if (V.object(node.template) || V.string(node.template)) {
                   if (V.subPlayground(node.template.type)) {
@@ -509,20 +507,39 @@
                }
             }
             
+            // variables 
             if (node.variables) {
                if (V.object(node.variables)) {
                   for (let key in node.variables) {
                      if (V.object(key) || V.variable(key)) {
-                        if (V.subPlayground(node.variables[key].type)) {
-                           if (!current.variables[key]) current.variables[key] = {};
-                           current.variables[key] = node.variables[key];
-                           walk(node.variables[key].value, [...path, 'variables', key], current.value, depth + 1);
+                        let val = node.variables[key];
+                        if (!current.variables) current.variables = {};
+                        if (!current.variables[key]) current.variables[key] = {};
+                        // context 
+                        if (val.context) {
+                           if ((depth === 0) ? (V.context(val.context)) : (V.context(val.context) || V.relativeValues(val.context))) {
+                              current.variables[key].context = val.context
+                           } else {
+                              this.#warn(8, val.context);
+                           }
+                        }
+                        // type
+                        if (V.subPlayground(val.type) || V.object(val.value)) {
+                           current.variables[key].type = val.type;
+                           current.variables[key].value = {};
+                           walk(val.value, [...path, 'variables', key], current.variables[key].value, depth + 1);
+                        } else if (V.type(val.type) || V.relativeValues(val.type)) {
+                           // type
+                           current.variables[key].type = val.type;
+                        }
+                        // value 
+                        if (V.string(val.value) || V.object(val.value) || !V.subPlayground(val.type)) {
+                           current.variables[key].value = val.value;
                         } else {
-                           if (!current.variables) current.variables = {};
-                           current.variables[key] = node.variables[key];
+                           this.#warn(13, val.value);
                         }
                      } else {
-                        this.#warn(12, key)
+                        this.#warn(12, key);
                      }
                   }
                } else {
@@ -542,6 +559,41 @@
          
          walk(playground);
          this.setPlayground(result);
+      }
+      #context(input, context) {
+         context = context ?? 'text';
+         
+         switch (context.toLowerCase()) {
+            case 'text': {
+               return input;
+            }
+            case 'encodeurl': {
+               return encodeURIComponent(input);
+            }
+            case 'fromencodeurl': 
+            case 'decodeurl': {
+               return decodeURIComponent(input);
+            }
+            case 'base64': {
+               return btoa(unescape(encodeURIComponent(input)));
+            }
+            case 'frombase64': {
+               return decodeURIComponent(escape(atob(input)));
+            }
+            case 'binary': {
+               let encoder = new TextEncoder();
+               return [...encoder.encode(input)].map(byte => byte.toString(2).padStart(8, '0')).join('');
+            }
+            case 'frombinary': {
+               let decoder = new TextDecoder();
+               let bytes = input.match(/.{1,8}/g).map(bin => parseInt(bin, 2));
+               let uint8Array = new Uint8Array(bytes);
+               return decoder.decode(uint8Array);
+            }
+            default: {
+               return input;
+            }
+         }
       }
       
       /*** method ***/
