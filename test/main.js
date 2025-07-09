@@ -1,20 +1,36 @@
 let B = new Bundle();
 
 B.setPlayground({
+   name: 'Logo',
    key: '$KEY',
-   type: 'url',
-   template: 'files/template.xml',
+   template: {
+      type: 'subPlayground',
+      value: {
+         template: {
+            value: '$A'
+         }
+      }
+   },
    variables: {
       A: {
-         value: 'files/A.txt',
-         context: 'binary'
+         type: 'url',
+         value: '../image/bundle.svg',
       },
-      B: 'files/B.txt',
-      C: '../image/bundle.svg',
+      B: {
+         type: 'subPlayground',
+         context: 'base64',
+         value: {
+            context: 'inherit',
+            template: 'B variable results',
+            variables: {
+               A: ''
+            }
+         }
+      },
+      Z: 'Hello'
    }
 });
-B.bundle();
 
-B.onfinished = (output)=> {
-   document.body.innerHTML = output;
-}
+B.bundle()
+
+B.onfinished = (o) => document.body.innerHTML = o;

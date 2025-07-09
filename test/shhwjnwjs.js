@@ -76,6 +76,7 @@ class Bundle {
       }
    }
    #getMIME(input) {
+      input = input ?? 'text';
       switch (input.toLowerCase()) {
          // font
          case 'woff':
