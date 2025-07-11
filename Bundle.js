@@ -359,15 +359,6 @@ class Bundle {
                if (V.inherit(current.context)) current.context = C.context(parent);
             }
             
-            // format url
-            if ('format' in node) {
-               current.format = (depth === 0) ? C.format(node) : C.depthFormat(node);
-            } else if (V.url(current.type)) {
-               current.format = this.#getFormat(C.value(node)) ?? 'txt';
-            } else {
-               current.format = this.#D.format
-            }
-            
             // template 
             if (V.string(current.template)) {
                current.template = {
@@ -391,6 +382,15 @@ class Bundle {
                   type: current.template.type ?? current.type,
                   value: V.string(value) || V.object(value) ? value : '',
                };
+            }
+            
+            // format url from template 
+            if ('format' in node) {
+               current.format = (depth === 0) ? C.format(node) : C.depthFormat(node);
+            } else if (V.url(current.type)) {
+               current.format = this.#getFormat(current.template.value) ?? 'txt';
+            } else {
+               current.format = this.#D.format
             }
             
             // variables
