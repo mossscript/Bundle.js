@@ -3,16 +3,16 @@
  * (c) 2025 Mossscript 
  * Released under the Apache 2.0 License
  */
-
 class Bundle {
    /*** privet variable ***/
    #E; // EventTarget
    #P; // Playground 
+   #R; // Raw Playground
    #T; // Tasks 
    #O; // Output 
    #ST; // Source Tree
-   #SP; // Source Path
-   #SBS; // StepByStep
+   #SM; // Source Map
+   #CTRL;
    
    // default playground
    #D = {
@@ -25,6 +25,7 @@ class Bundle {
       format: 'txt',
       key: '[[[KEY]]]',
       value: '',
+      stepByStep: false,
       template: {},
       variables: {},
    }
@@ -37,6 +38,9 @@ class Bundle {
       },
       object: (input) => {
          return typeof input === 'object' && !Array.isArray(input) && input !== null;
+      },
+      boolean: (input) => {
+         return typeof input === 'boolean';
       },
       // words
       subPlayground: (input) => {
@@ -84,6 +88,9 @@ class Bundle {
       },
       value: (input) => {
          return this.#V.string(input) || this.#V.object(input);
+      },
+      stepByStep: (input) => {
+         return this.#V.boolean(input);
       },
       template: (input) => {
          return this.#V.string(input) || this.#V.object(input);
@@ -275,6 +282,18 @@ class Bundle {
             return this.#D.value;
          }
       },
+      stepByStep: (node) => {
+         if (node?.stepByStep) {
+            if (this.#V.stepByStep(node.stepByStep)) {
+               return node.stepByStep;
+            } else {
+               this.#warn('playground-stepByStep', node.stepByStep);
+               return this.#D.stepByStep;
+            }
+         } else {
+            return this.#D.stepByStep;
+         }
+      },
       template: (node) => {
          if (node?.template) {
             if (this.#V.template(node.template)) {
@@ -295,7 +314,7 @@ class Bundle {
                   if (this.#V.variablesKey(key)) {
                      result[key] = node.variables[key];
                   } else {
-                     this.#warn('playground-variables-key',key)
+                     this.#warn('playground-variables-key', key)
                   }
                }
                return result;
@@ -324,7 +343,6 @@ class Bundle {
             
             current.key = (depth === 0) ? C.key(node) : C.depthKey(node);
             current.type = (depth === 0) ? C.type(node) : C.depthType(node);
-            current.format = (depth === 0) ? C.format(node) : C.depthFormat(node);
             current.context = (depth === 0) ? C.context(node) : C.depthContext(node);
             current.template = C.template(node);
             current.variables = C.variables(node);
@@ -333,11 +351,21 @@ class Bundle {
                current.name = C.name(node);
                current.version = C.version(node);
                current.devVersion = C.devVersion(node);
+               current.stepByStep = C.stepByStep(node);
             } else {
                if (V.inherit(current.key)) current.key = C.key(parent);
                if (V.inherit(current.type)) current.type = C.type(parent);
                if (V.inherit(current.format)) current.format = C.format(parent);
                if (V.inherit(current.context)) current.context = C.context(parent);
+            }
+            
+            // format url
+            if ('format' in node) {
+               current.format = (depth === 0) ? C.format(node) : C.depthFormat(node);
+            } else if (V.url(current.type)) {
+               current.format = this.#getFormat(C.value(node)) ?? 'txt';
+            } else {
+               current.format = this.#D.format
             }
             
             // template 
@@ -369,26 +397,40 @@ class Bundle {
             for (let key in current.variables) {
                let val = current.variables[key];
                if (V.string(val)) {
+                  let variableFormat = (V.url(current.type)) ? (this.#getFormat(val) ?? current.format) : current.format;
                   current.variables[key] = {
                      type: current.type,
+                     format: variableFormat,
+                     context: current.context,
                      value: val,
                   };
                }
                else if (V.object(val)) {
                   let value = C.value(val);
                   if (V.subPlayground(current.template.type) && V.object(value)) {
-                  let child = {
-                     key: current.key,
-                     type: current.type,
-                     format: current.format,
-                     context: current.context,
+                     let child = {
+                        key: current.key,
+                        type: current.type,
+                        format: val.format ?? current.format,
+                        context: val.context ?? current.context,
+                     }
+                     value = {};
+                     walk(val.value, [...path], value, child, depth + 1);
                   }
-                  value = {};
-                  walk(val.value, [...path], value, child, depth + 1);
-               }
+                  let variableFormat;
+                  
+                  if ('format' in val) {
+                     variableFormat = val.format;
+                  } else if ('type' in val && V.url(val.type)) {
+                     variableFormat = this.#getFormat(value) ?? current.format;
+                  } else if (V.url(current.type)) {
+                     variableFormat = this.#getFormat(value) ?? current.format;
+                  } else {
+                     variableFormat = current.format;
+                  }
                   current.variables[key] = {
                      type: val.type ?? current.type,
-                     format: val.format ?? current.format,
+                     format: variableFormat,
                      context: val.context ?? current.context,
                      value: V.string(value) || V.object(value) ? value : '',
                   };
@@ -458,38 +500,15 @@ class Bundle {
    
    /*** constructor ***/
    constructor() {
-      this.version = '1.0.0';
       this.#E = new EventTarget();
       this.#P = undefined;
+      this.#R = { variables: {} };
       this.#T = [];
       this.#ST = {};
-      this.#SP = {};
-      this.#SBS = false;
+      this.#SM = {};
    }
-   
    
    /*** privet method ***/
-   #error(code, warn) {
-      let lib = {
-         0: `\nThe playground is empty!`,
-         1: `\nPlayground Not Found!\nurl: ${warn}`,
-         2: `\n${warn.message}!\nurl: ${warn.url}`,
-         3: `\nThe playground must be an object!`,
-         4: `\nInvalid name! "${warn}"\nThe name must start with a letter and can only contain letters, numbers, dot(.), hyphens(-), and underscores(_).`,
-         5: `\nInvalid version format! "${warn}"\nPlease use a version number like "1", "1.0", or "10.200.300".`,
-         6: `\nInvalid type! "${warn}"\nThe type must be either "url", "inline" or "subPlayground".`,
-         7: `\nInvalid format! "${warn}"\nThe input must start with a letter and can only contain letters and numbers.`,
-         8: `\nInvalid context! "${warn}"\nThe context must be one of the following: "text", "base64", "fromBase64", "binary", "fromBinary", "encodeURL", "fromEncodeURL" or "decodeURL".`,
-         9: `\nInvalid key! "${warn}"\nThe input must contain the word "KEY" exactly once, regardless of capitalization.`,
-         10: `\nInvalid template! "${warn}"\nThe template must be a string or valid object.`,
-         11: `\nInvalid variables! "${warn}"\nThe variables must be a valid object.`,
-         12: `\nInvalid variables key"! "${warn}"\nThe variables key must be a valid object or a string with letters, numbers, hyphens(-), and underscores(_).`,
-         13: `\nInvalid variables value"! "${warn}"\nThe variables must be string or a valid object.`,
-         14: `Maximum playground depth exceeded`,
-         100: warn,
-      }
-      throw new Error('[Bundle.js]' + lib[code])
-   }
    #warn(name, warn) {
       let logs = {
          'playground-empty': `Invalid playground! \nThe playground is empty.`,
@@ -510,63 +529,19 @@ class Bundle {
          'playground-variables': `Invalid variables! "${warn}".\nThe variables must be a valid object.`,
          'playground-variables-key': `Invalid variables key! "${warn}".\nThe variables key must be a valid object or a string with letters, numbers, hyphens(-), and underscores(_).`,
          'playground-variable-value': `Invalid variable value! "${warn}".\nThe value must be a valid string or object.`,
+         'playground-stepByStep': `Invalid stepByStep! "${warn}".\nThe stepByStep must be boolean.`,
+         'bundle-not-started': `The bundle has not been started yet. Use "start()" to begin.`,
+         'bundle-already-running': `The bundle is already running. Please wait for it to finish.`,
+         'bundle-already-finished': `The bundle has already finished. No further tasks to execute.`,
+         'bundle-no-tasks': `There are no tasks to execute in the bundle.`,
+         'apply-format': `Invalid format! "${warn}".\nThe "apply()" method only supports "js" and "css" formats. Please make sure the format is set to "js" or "css".`,
+         'download-output-missing': 'No output available to download',
+         'open': warn,
       };
       console.warn('[Bundle.js]', logs[name])
    }
    #dispatch(event, detail = {}) {
       this.#E.dispatchEvent(new CustomEvent(event, { detail }));
-   }
-   #addTask(type, value, context, path) {
-      context = context ?? 'text';
-      
-      if (this.#V.inline(type)) {
-         this.#T.push(() => Promise.resolve().then(() => {
-            return {
-               [path]: this.#context(value, context)
-            };
-         }));
-      }
-      if (this.#V.url(type)) {
-         this.#T.push(() => this.#fetch(value).then((data) => {
-            return {
-               [path]: this.#context(data, context)
-            }
-         }))
-      }
-   }
-   #runAllTask() {
-      let progress = 0;
-      let length = this.#T.length;
-      queueMicrotask(() => {
-         this.#dispatch('start', { length })
-      })
-      const walk = (i) => {
-         this.#T[i]().then((data) => {
-            progress++;
-            let [path, value] = Object.entries(data)[0];
-            this.#SP[path] = value;
-            this.#pathToTree(path, value);
-            if (this.#SBS) this.#insert();
-            this.#dispatch('progress', { progress, length, output: this.#O, successful: true });
-            if (progress !== length) {
-               walk(progress);
-            } else {
-               if (!this.#SBS) this.#insert();
-               this.#dispatch('finished', this.#O);
-            }
-         }).catch((e) => {
-            progress++;
-            this.#dispatch('progress', { progress, length, output: this.#O, successful: true });
-            if (progress !== length) {
-               walk(progress);
-            } else {
-               this.#dispatch('finished', this.#O);
-            }
-            this.#error(100, e);
-         })
-      }
-      
-      walk(progress);
    }
    #fetch(url, type = 'text') {
       let maxRequest = 5;
@@ -608,10 +583,10 @@ class Bundle {
       const V = this.#V;
       const collect = (node, path = '') => {
          // Template
-         if (V.url(node.template.type) || V.inline(node.template.type)) {
+         if (!V.subPlayground(node.template.type)) {
             const id = path ? `${path}/template` : 'template';
-            this.#addTask(node.template.type, node.template.value, null, id);
-         } else if (V.subPlayground(node.template.type)) {
+            this.#addTask(node.template.type, node.template.value, null, null, id);
+         } else {
             const id = path ? `${path}/template` : 'template';
             collect(node.template.value, id);
          }
@@ -619,9 +594,9 @@ class Bundle {
          // Variables
          for (let [key, val] of Object.entries(node.variables)) {
             const id = path ? `${path}/variables/${key}` : `variables/${key}`;
-            if (V.url(val.type) || V.inline(val.type)) {
-               this.#addTask(val.type, val.value, val.context, id);
-            } else if (V.subPlayground(val.type)) {
+            if (!V.subPlayground(val.type)) {
+               this.#addTask(val.type, val.value, val.context, val.format, id);
+            } else {
                collect(val.value, id);
             }
          }
@@ -630,49 +605,126 @@ class Bundle {
       
       collect(this.#P);
    }
-   #pathToTree(path, value) {
-      const keys = path.split('/');
-      let node = this.#ST;
+   #addTask(type, value, context, format, path) {
+      let V = this.#V;
+      context = context ?? 'text';
+      format = format ?? 'txt';
       
-      for (let i = 0; i < keys.length; i++) {
-         const key = keys[i];
-         if (i === keys.length - 1) {
-            node[key] = value;
-         } else {
-            if (!(key in node)) {
-               node[key] = {};
+      if (V.inline(type)) {
+         this.#T.push(() => Promise.resolve().then(() => {
+            return {
+               [path]: this.#context(value, context, format)
+            };
+         }));
+      }
+      if (V.url(type)) {
+         this.#T.push(() => this.#fetch(value).then((data) => {
+            return {
+               [path]: this.#context(data, context, format)
             }
-            node = node[key];
-         }
+         }))
       }
    }
-   #insert() {
-      let rootNode = this.#P;
-      let sourceTree = this.#ST;
-      let walk = (node, source) => {
-         const keyPattern = node.key;
-         let output;
-         
-         // template
-         if (typeof source.template === 'string') {
-            output = source.template;
-         } else {
-            output = walk(node.template.value, source.template);
-         }
-         
-         // variables
-         for (let [k, v] of Object.entries(source.variables || {})) {
-            const val = (typeof v === 'string') ? v : walk(node.variables[k].value, v);
-            output = this.#write(output, k, val, keyPattern);
-         }
-         
-         return output;
+   #runAllTask(autoStart = true, autoNext = true) {
+      let progress = 0;
+      const length = this.#T.length;
+      let allSuccessful = true;
+      const SBS = this.#P.stepByStep;
+      const state = {
+         started: false,
+         finished: false,
+         running: false
       };
-      this.#O = walk(rootNode, sourceTree);
+      
+      queueMicrotask(() => {
+         this.#dispatch('start', { length });
+      });
+      
+      const walk = (i) => {
+         if (i >= length || state.finished) return;
+         state.running = true;
+         this.#T[i]().then((data) => {
+            progress++;
+            const [path, value] = Object.entries(data)[0];
+            this.#SM[path] = value;
+            this.#pathToTree(path, value);
+            if (SBS) this.#insert();
+            
+            const isLast = progress === length;
+            
+            this.#dispatch('progress', {
+               progress,
+               length,
+               output: this.#O,
+               successful: true,
+               isFinished: isLast
+            });
+            
+            if (isLast) {
+               if (!SBS) this.#insert();
+               this.#dispatch('bundled', { output: this.#O, allSuccessful });
+               state.finished = true;
+               state.running = false;
+            } else if (autoNext) {
+               walk(progress);
+            } else {
+               state.running = false;
+            }
+         }).catch((e) => {
+            progress++;
+            allSuccessful = false;
+            
+            const isLast = progress === length;
+            
+            this.#dispatch('progress', {
+               progress,
+               length,
+               output: this.#O,
+               successful: false,
+               isFinished: isLast
+            });
+            
+            this.#warn('open', e);
+            
+            if (isLast) {
+               this.#dispatch('bundled', {
+                  output: this.#O,
+                  allSuccessful,
+                  length,
+               });
+               state.finished = true;
+               state.running = false;
+            } else if (autoNext) {
+               walk(progress);
+            } else {
+               state.running = false;
+            }
+         });
+      };
+      
+      const api = {
+         start: () => {
+            if (state.started || state.finished) return false;
+            state.started = true;
+            walk(progress);
+            return true;
+         },
+         next: () => {
+            if (!state.started || state.running || state.finished) return false;
+            walk(progress);
+            return true;
+         },
+         isFinished: () => state.finished,
+         isRunning: () => state.running,
+         progress: () => progress,
+         length: () => length
+      };
+      this.#CTRL = api;
+      if (autoStart) api.start();
    }
    
    // tools
-   #context(input, context) {
+   #context(input, context, format) {
       switch (context.toLowerCase().trim()) {
          case 'text': {
             return input;
@@ -685,7 +737,8 @@ class Bundle {
             return decodeURIComponent(input);
          }
          case 'base64': {
-            return btoa(unescape(encodeURIComponent(input)));
+            let header = `data:${this.#MIME.get(format)};base64,`;
+            return header + btoa(unescape(encodeURIComponent(input)));
          }
          case 'frombase64': {
             let base64 = input.includes(',') ? input.split(',')[1] : input;
@@ -721,28 +774,233 @@ class Bundle {
       }
       return input.trim().split('.').reverse()[0];
    }
+   #pathToTree(path, value) {
+      const keys = path.split('/');
+      let node = this.#ST;
+      for (let i = 0; i < keys.length; i++) {
+         const key = keys[i];
+         if (i === keys.length - 1) {
+            node[key] = value;
+         } else {
+            if (!(key in node)) {
+               node[key] = {};
+            }
+            node = node[key];
+         }
+      }
+   }
    #write(template, key, value, keyPattern) {
       let [start = '', end = ''] = keyPattern.split('KEY');
       let target = start + key + end;
       return template.split(target).join(value);
    }
+   #insert() {
+      let rootNode = this.#P;
+      let sourceTree = this.#ST;
+      let walk = (node, source) => {
+         const keyPattern = node.key;
+         let output;
+         
+         // template
+         if (typeof source.template === 'string') {
+            output = source.template;
+         } else {
+            output = walk(node.template.value, source.template);
+         }
+         
+         // variables
+         for (let [k, v] of Object.entries(source.variables || {})) {
+            const val = (typeof v === 'string') ? v : walk(node.variables[k].value, v);
+            output = this.#write(output, k, val, keyPattern);
+         }
+         
+         return output;
+      };
+      this.#O = walk(rootNode, sourceTree);
+   }
+   #normalize(raw = this.#R) {
+      return this.#C.deepCheck(raw);
+   }
+   
+   // apply
+   #applyJS() {
+      let id = this.#P.name;
+      let blob = new Blob([this.#O], { type: 'application/javascript' });
+      let url = URL.createObjectURL(blob);
+      let script = document.getElementById(id);
+      if (script) script.remove();
+      script = document.createElement('script');
+      script.id = id;
+      script.src = url;
+      document.head.appendChild(script);
+      script.onload = () => {
+         URL.revokeObjectURL(url);
+         this.#E.dispatchEvent(new Event('apply'));
+      }
+   }
+   #applyCSS() {
+      let id = this.#P.name;
+      let blob = new Blob([this.#O], { type: 'text/css' });
+      let url = URL.createObjectURL(blob);
+      let link = document.getElementById(id);
+      if (link) link.remove();
+      link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      document.head.appendChild(link);
+      link.onload = () => {
+         URL.revokeObjectURL(url);
+         this.#E.dispatchEvent(new Event('apply'));
+      }
+   }
    
    /*** method ***/
    setPlayground(obj) {
-      this.#P = this.#C.deepCheck(obj);
+      this.#R = obj;
    }
-   bundle(url) {
+   setName(val) {
+      this.#R.name = val;
+      return this;
+   }
+   setVersion(val) {
+      this.#R.version = val;
+      return this;
+   }
+   setDevVersion(val) {
+      this.#R.devVersion = val;
+      return this;
+   }
+   setKey(val) {
+      this.#R.key = val;
+      return this;
+   }
+   setType(val) {
+      this.#R.type = val;
+      return this;
+   }
+   setFormat(val) {
+      this.#R.format = val;
+      return this;
+   }
+   setContext(val) {
+      this.#R.context = val;
+      return this;
+   }
+   setStepByStep(val) {
+      this.#R.stepByStep = val;
+      return this;
+   }
+   setTemplate(val) {
+      this.#R.template = val;
+      return this;
+   }
+   setVariables(obj) {
+      this.#R.variables = obj;
+      return this;
+   }
+   addVariables(key, val) {
+      this.#R.variables[key] = val;
+      return this;
+   }
+   removeVariables(key) {
+      delete this.#R.variables[key];
+      return this;
+   }
+   clearVariables() {
+      this.#R.variables = {};
+      return this;
+   }
+   
+   // controller 
+   start() {
+      if (!this.#CTRL) {
+         this.#warn('bundle-not-started');
+         return false;
+      }
+      if (this.isFinished) {
+         this.#warn('bundle-already-finished');
+         return false;
+      }
+      return this.#CTRL.start();
+   }
+   next() {
+      if (!this.#CTRL) {
+         this.#warn('bundle-not-started');
+         return false;
+      }
+      if (this.isFinished) {
+         this.#warn('bundle-already-finished');
+         return false;
+      }
+      if (this.isRunning) {
+         this.#warn('bundle-already-running');
+         return false;
+      }
+      if (this.#CTRL.length() === 0) {
+         this.#warn('bundle-no-tasks');
+         return false;
+      }
+      return this.#CTRL.next();
+   }
+   
+   // bundle 
+   bundle(url, autoStart = true, autoNext = true) {
       if (url) {
          this.#fetch(url, 'json').then((data) => {
+            this.#P = this.#normalize(data);
             this.#dispatch('load', this.#P);
             this.#getSources();
-            this.#runAllTask();
-         }).catch((error) => {
-            this.#error(100, error);
+            this.#runAllTask(autoStart, autoNext);
+         }).catch((e) => {
+            this.#warn('open', e);
          })
       } else {
+         this.#P = this.#normalize();
          this.#getSources();
-         this.#runAllTask();
+         this.#runAllTask(autoStart, autoNext);
+      }
+   }
+   apply() {
+      let format = this.#P.format;
+      
+      switch (format.toLowerCase()) {
+         case 'js':
+            this.#applyJS();
+            break;
+         case 'css':
+            this.#applyCSS();
+            break;
+         default:
+            this.#warn('apply-format', format);
+      }
+      
+   }
+   download(filename) {
+      if (!this.#P) this.#P = this.#normalize();
+      let name = filename && filename.trim() !== '' ? filename : this.#P.name;
+      let format = this.#P.format;
+      let mimeType = this.#MIME.get(format);
+      
+      if (!this.#O) {
+         this.#warn('download-output-missing');
+         return false;
+      }
+      
+      try {
+         let blob = new Blob([this.#O], { type: mimeType });
+         
+         let url = URL.createObjectURL(blob);
+         let a = document.createElement('a');
+         a.href = url;
+         a.download = name;
+         
+         document.body.appendChild(a);
+         a.click();
+         
+         document.body.removeChild(a);
+         URL.revokeObjectURL(url);
+      } catch (error) {
+         console.error('Error during download:', error);
       }
    }
    
@@ -756,7 +1014,68 @@ class Bundle {
    set onprogress(callback) {
       this.#E.addEventListener('progress', (e) => callback(e.detail));
    }
-   set onfinished(callback) {
-      this.#E.addEventListener('finished', (e) => callback(e.detail));
+   set onbundled(callback) {
+      this.#E.addEventListener('bundled', (e) => callback(e.detail));
+   }
+   set onapply(callback) {
+      this.#E.addEventListener('apply', callback);
+   }
+   
+   /* property */
+   get playground() {
+      return this.#normalize();
+   }
+   get name() {
+      return this.#normalize().name;
+   }
+   get version() {
+      return this.#normalize().version;
+   }
+   get devVersion() {
+      return this.#normalize().devVersion;
+   }
+   get key() {
+      return this.#normalize().key;
+   }
+   get type() {
+      return this.#normalize().type;
+   }
+   get format() {
+      return this.#normalize().format;
+   }
+   get context() {
+      return this.#normalize().context;
+   }
+   get stepByStep() {
+      return this.#normalize().stepByStep;
+   }
+   get template() {
+      return this.#normalize().template;
+   }
+   get variables() {
+      return this.#normalize().variables;
+   }
+   
+   get output() {
+      return this.#O;
+   }
+   get raw() {
+      return this.#R;
+   }
+   get source() {
+      return this.#ST;
+   }
+   get sourceTree() {
+      return this.#ST;
+   }
+   get sourceMap() {
+      return this.#SM;
+   }
+   
+   get running() {
+      return !!this.#CTRL?.isRunning?.();
+   }
+   get finished() {
+      return !!this.#CTRL?.isFinished?.();
    }
 }
