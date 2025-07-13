@@ -334,12 +334,13 @@ class Bundle {
          
          let walk = (node, path = [], output = result, parent = null, depth = 0) => {
             
-            if (C.maxDepth(depth)) { result = {}; return }
-            if (C.invalidPlayground(node)) { result = {}; return }
-            if (C.emptyPlayground(node)) { result = {}; return }
+            if (C.maxDepth(depth)) { result = {template: ''}; return }
             
             // checking 
             let current = {};
+            
+            if (C.invalidPlayground(node)) { current = {template: ''}}
+            if (C.emptyPlayground(node)) { current = {template: ''}}
             
             current.key = (depth === 0) ? C.key(node) : C.depthKey(node);
             current.type = (depth === 0) ? C.type(node) : C.depthType(node);
