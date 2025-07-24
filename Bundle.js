@@ -866,6 +866,7 @@ class Bundle {
    /*** method ***/
    setPlayground(obj) {
       this.#R = obj;
+      return this;
    }
    setName(val) {
       this.#R.name = val;
