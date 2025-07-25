@@ -408,7 +408,7 @@ class Bundle {
                }
                else if (V.object(val)) {
                   let value = C.value(val);
-                  if (V.subPlayground(current.template.type) && V.object(value)) {
+                  if (V.subPlayground(val.type) && V.object(value)) {
                      let child = {
                         key: current.key,
                         type: current.type,
