@@ -856,6 +856,7 @@ class Bundle {
       link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = url;
+      link.id = id;
       document.head.appendChild(link);
       link.onload = () => {
          URL.revokeObjectURL(url);
