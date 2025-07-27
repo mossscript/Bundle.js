@@ -664,13 +664,6 @@ class Bundle {
             if (isLast) {
                if (!SBS) this.#insert();
                
-               this.#dispatch('progress', {
-                  progress,
-                  length,
-                  output: this.#O,
-                  successful: true,
-                  isFinished: isLast
-               });
                this.#dispatch('bundled', { output: this.#O, allSuccessful });
                state.finished = true;
                state.running = false;
